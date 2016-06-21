@@ -5,8 +5,10 @@ use app\components\BaseModule;
 use app\modules\seo\handlers\AnalyticsHandler;
 use app\modules\seo\models\Counter;
 use app\modules\seo\models\Meta;
+use app\models\Submission;
 use Yii;
 use yii\base\BootstrapInterface;
+use yii\base\Event;
 use yii\web\Application;
 use yii\web\Controller;
 use yii\web\View;
@@ -77,6 +79,36 @@ class SeoModule extends BaseModule implements BootstrapInterface
         // Analytics
         $app->on(Application::EVENT_BEFORE_ACTION, [AnalyticsHandler::className(), 'handleBeforeAction']);
         $app->on(Application::EVENT_BEFORE_ACTION, [Meta::className(), 'registrationMeta']);
+
+        $app->on(
+            Application::EVENT_BEFORE_ACTION,
+            function($event) {
+                $request = Yii::$app->request;
+                $session = Yii::$app->session;
+                if (Yii::$app->user->isGuest &&
+                    $session->get('visitor_referrer') === null &&
+                    $request->getReferrer() !== null &&
+                    $request->getServerName() == parse_url($request->getReferrer(), PHP_URL_HOST)
+                ) {
+                    $session->set('visitor_referrer', $request->getReferrer());
+                    $session->set('visitor_landing', $request->getUrl());
+                    $session->set('visit_start_date', time());
+                }
+            }
+        );
+
+        Event::on(
+            Submission::className(),
+            Submission::EVENT_BEFORE_INSERT,
+            function($event) use ($app) {
+                $session = Yii::$app->session;
+                $model = $event->sender;
+
+                $model->visitor_referrer = $session->get('visitor_referrer');
+                $model->visitor_landing = $session->get('visitor_landing');
+                $model->visit_start_date = $session->get('visit_start_date');
+            }
+        );
     }
 
     /**
